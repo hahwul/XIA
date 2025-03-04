@@ -84,6 +84,7 @@ type Options struct {
 	OutputResponse    bool `json:"output-response,omitempty"`
 	UseBAV            bool `json:"use-bav,omitempty"`
 	CustomTransport   http.RoundTripper
+	SkipDiscovery     bool `json:"skip-discovery,omitempty"`
 }
 
 // MassJob is list for mass

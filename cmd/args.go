@@ -55,4 +55,5 @@ type Args struct {
 	ReportBool        bool
 	OutputRequest     bool
 	OutputResponse    bool
+	SkipDiscovery     bool
 }

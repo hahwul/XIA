@@ -105,6 +105,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&args.ReportBool, "report", false, "Show detailed report. Example: --report")
 	rootCmd.PersistentFlags().BoolVar(&args.OutputRequest, "output-request", false, "Include raw HTTP requests in the results. Example: --output-request")
 	rootCmd.PersistentFlags().BoolVar(&args.OutputResponse, "output-response", false, "Include raw HTTP responses in the results. Example: --output-response")
+	rootCmd.PersistentFlags().BoolVar(&args.SkipDiscovery, "skip-discovery", false, "Skip the entire discovery phase, proceeding directly to XSS scanning. Requires -p flag to specify parameters. Example: --skip-discovery -p 'username'")
+
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -165,6 +167,7 @@ func initConfig() {
 		OutputRequest:     args.OutputRequest,
 		OutputResponse:    args.OutputResponse,
 		UseBAV:            args.UseBAV,
+		SkipDiscovery:     args.SkipDiscovery,
 	}
 
 	if args.HarFilePath != "" {

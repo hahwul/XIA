@@ -101,56 +101,89 @@ func Scan(target string, options model.Options, sid string) (model.Result, error
 		printing.DalLog("SYSTEM", "Valid target [ code:"+strconv.Itoa(tres.StatusCode)+" / size:"+strconv.Itoa(len(body))+" ]", options)
 	}
 
-	var wait sync.WaitGroup
-	task := 3
-	sa := "SA: ✓ "
-	pa := "PA: ✓ "
-	bav := "BAV: ✓ "
-	if !options.UseBAV {
-		task = 2
-		bav = ""
-	}
+	if options.SkipDiscovery {
+		printing.DalLog("SYSTEM", "Skipping discovery phase as requested with --skip-discovery", options)
 
-	wait.Add(task)
-	printing.DalLog("SYSTEM", "["+sa+pa+bav+"] Waiting for analysis 🔍", options)
-	go func() {
-		defer wait.Done()
-		policy, options.PathReflection = StaticAnalysis(target, options, rl)
-		sa = options.AuroraObject.Green(sa).String()
+		// Initialize empty data structures that would normally be filled by discovery
+		policy = make(map[string]string)
+		options.PathReflection = make(map[int]string)
+		params = make(map[string]model.ParamResult)
+
+		// Check that parameters were provided with -p
+		if len(options.UniqParam) == 0 {
+			printing.DalLog("ERROR", "--skip-discovery requires parameters to be specified with -p flag", options)
+			return scanResult, fmt.Errorf("--skip-discovery requires parameters to be specified with -p flag")
+		}
+
+		// Add user-specified parameters from -p
+		for _, paramName := range options.UniqParam {
+			if paramName != "" {
+				params[paramName] = model.ParamResult{
+					Name:      paramName,
+					Type:      "URL",
+					Reflected: true,       // Assume it might be reflected
+					Chars:     []string{}, // Empty slice of special chars
+				}
+			}
+		}
+
+		// Set a dummy content type to bypass the content type check
+		policy["Content-Type"] = "text/html"
+
+		printing.DalLog("INFO", "Discovery phase and content-type checks skipped. Testing with "+strconv.Itoa(len(params))+" parameters from -p flag", options)
+	} else {
+
+		var wait sync.WaitGroup
+		task := 3
+		sa := "SA: ✓ "
+		pa := "PA: ✓ "
+		bav := "BAV: ✓ "
+		if !options.UseBAV {
+			task = 2
+			bav = ""
+		}
+
+		wait.Add(task)
 		printing.DalLog("SYSTEM", "["+sa+pa+bav+"] Waiting for analysis 🔍", options)
-	}()
-	go func() {
-		defer wait.Done()
-		params = ParameterAnalysis(target, options, rl)
-		pa = options.AuroraObject.Green(pa).String()
-		printing.DalLog("SYSTEM", "["+sa+pa+bav+"] Waiting for analysis 🔍", options)
-	}()
-	if options.UseBAV {
 		go func() {
 			defer wait.Done()
-			runBAVAnalysis(target, options, rl, &bav)
+			policy, options.PathReflection = StaticAnalysis(target, options, rl)
+			sa = options.AuroraObject.Green(sa).String()
+			printing.DalLog("SYSTEM", "["+sa+pa+bav+"] Waiting for analysis 🔍", options)
 		}()
-	}
+		go func() {
+			defer wait.Done()
+			params = ParameterAnalysis(target, options, rl)
+			pa = options.AuroraObject.Green(pa).String()
+			printing.DalLog("SYSTEM", "["+sa+pa+bav+"] Waiting for analysis 🔍", options)
+		}()
+		if options.UseBAV {
+			go func() {
+				defer wait.Done()
+				runBAVAnalysis(target, options, rl, &bav)
+			}()
+		}
 
-	if options.NowURL != 0 && !options.Silence {
-		s.Suffix = "  [" + strconv.Itoa(options.NowURL) + "/" + strconv.Itoa(options.AllURLS) + " Tasks] Scanning.."
-	}
+		if options.NowURL != 0 && !options.Silence {
+			s.Suffix = "  [" + strconv.Itoa(options.NowURL) + "/" + strconv.Itoa(options.AllURLS) + " Tasks] Scanning.."
+		}
 
-	if !(options.Silence || options.NoSpinner) {
-		time.Sleep(1 * time.Second) // Waiting log
-		s.Start()                   // Start the spinner
-	}
-	wait.Wait()
+		if !(options.Silence || options.NoSpinner) {
+			time.Sleep(1 * time.Second) // Waiting log
+			s.Start()                   // Start the spinner
+		}
+		wait.Wait()
 
-	if !(options.Silence || options.NoSpinner) {
-		s.Stop()
-	}
-	logPolicyAndPathReflection(policy, options, parsedURL)
+		if !(options.Silence || options.NoSpinner) {
+			s.Stop()
+		}
+		logPolicyAndPathReflection(policy, options, parsedURL)
 
-	for k, v := range params {
-		printing.DalLog("INFO", "Reflected "+k+" param => "+strings.Join(v.Chars, "  "), options)
-		printing.DalLog("CODE", v.ReflectedCode, options)
-		scanResult.Params = append(scanResult.Params, v)
+		for k, v := range params {
+			printing.DalLog("INFO", "Reflected "+k+" param => "+strings.Join(v.Chars, "  "), options)
+			printing.DalLog("CODE", v.ReflectedCode, options)
+			scanResult.Params = append(scanResult.Params, v)
+		}
 	}
 
 	if !options.OnlyDiscovery {
@@ -201,7 +234,7 @@ func Scan(target string, options model.Options, sid string) (model.Result, error
 		}
 
 		// Custom Payload
-		if isAllowType(policy["Content-Type"]) && options.CustomPayloadFile != "" {
+		if (options.SkipDiscovery || isAllowType(policy["Content-Type"])) && options.CustomPayloadFile != "" {
 			ff, err := voltFile.ReadLinesOrLiteral(options.CustomPayloadFile)
 			if err != nil {
 				printing.DalLog("SYSTEM", "Custom XSS payload load fail..", options)
@@ -234,7 +267,7 @@ func Scan(target string, options model.Options, sid string) (model.Result, error
 			}
 		}
 
-		if isAllowType(policy["Content-Type"]) && !options.OnlyCustomPayload {
+		if (options.SkipDiscovery || isAllowType(policy["Content-Type"])) && !options.OnlyCustomPayload {
 			// Set common payloads
 			cu, err := url.Parse(target)
 			var cp url.Values
